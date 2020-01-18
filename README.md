@@ -30,6 +30,8 @@ This is very similar to the linkable borromean ring signatures mentioned before.
 Any representative that does not release `D` or for which verification fails will have their key publicly recovered by the others using the secret sharing scheme described at the start.
 
 Finally, `b*G = c - D1 - D2 - ... - Dn` is computed for each total commitment.
+This works because if we call the aggregated rep secret keys `p`, `c - pI = (b*G + x*P) - p*x*H = b*G + x*p*H - p*x*H = b*G`.
+`p` is never computed, but its components multiplied by `I` are the decryption shares `D1 + D2 + ... + Dn = pI`.
 To recover `b` itself, the total weight, a precomputed lookup table can be utilized.
 To reduce the size of the lookup table, it can be limited to points which start with the `00` byte (and this byte doesn't need to be stored).
 Then, `G` is added to `b*G` until it starts with a `00` byte too (and a count is kept of how many times this was done).
