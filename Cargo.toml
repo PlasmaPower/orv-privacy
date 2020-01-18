@@ -1,0 +1,11 @@
+[package]
+name = "orv-privacy"
+version = "0.1.0"
+authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+curve25519-dalek = "2.0.0"
+rand = "0.7.3"
+sha2 = "0.8.1"
+hex = "0.4.0"
