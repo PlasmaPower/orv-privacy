@@ -6,8 +6,7 @@ use sha2::{Digest, Sha512};
 const CROSS_BASE_PROOF_MESSAGE: &[u8] = b"cross base proof signature\0";
 
 pub struct CrossBaseProof {
-    r_val: RistrettoPoint,
-    l_val: RistrettoPoint,
+    c_val: Scalar,
     s_val: Scalar,
 }
 
@@ -24,20 +23,15 @@ impl CrossBaseProof {
         let a_val = Scalar::random(rng);
         let r_val = a_val * base1;
         let l_val = a_val * base2;
-        let pubkey1 = secret * base1;
-        let pubkey2 = secret * base2;
-        let hram = Scalar::from_hash(
+        let c_val = Scalar::from_hash(
             Sha512::new()
                 .chain(r_val.compress().as_bytes())
                 .chain(l_val.compress().as_bytes())
-                .chain(pubkey1.compress().as_bytes())
-                .chain(pubkey2.compress().as_bytes())
                 .chain(CROSS_BASE_PROOF_MESSAGE),
         );
-        let s_val = a_val + hram * secret;
+        let s_val = a_val + c_val * secret;
         CrossBaseProof {
-            r_val,
-            l_val,
+            c_val,
             s_val,
         }
     }
@@ -49,22 +43,18 @@ impl CrossBaseProof {
         base2: &RistrettoPoint,
         pubkey2: &RistrettoPoint,
     ) -> Result<(), ()> {
-        let hram = Scalar::from_hash(
+        let r_val = self.s_val * base1 - self.c_val * pubkey1;
+        let l_val = self.s_val * base2 - self.c_val * pubkey2;
+        let expected_c = Scalar::from_hash(
             Sha512::new()
-                .chain(self.r_val.compress().as_bytes())
-                .chain(self.l_val.compress().as_bytes())
-                .chain(pubkey1.compress().as_bytes())
-                .chain(pubkey2.compress().as_bytes())
-                .chain(CROSS_BASE_PROOF_MESSAGE),
+                .chain(r_val.compress().as_bytes())
+                .chain(l_val.compress().as_bytes())
+                .chain(CROSS_BASE_PROOF_MESSAGE)
         );
-        let expected_sb1 = self.r_val + hram * pubkey1;
-        if expected_sb1 != self.s_val * base1 {
-            return Err(());
+        if self.c_val == expected_c {
+            Ok(())
+        } else {
+            Err(())
         }
-        let expected_sb2 = self.l_val + hram * pubkey2;
-        if expected_sb2 != self.s_val * base2 {
-            return Err(());
-        }
-        Ok(())
     }
 }
