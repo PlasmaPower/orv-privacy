@@ -68,34 +68,34 @@ fn main() {
         blinding_base += pubkey * multiplier;
     }
     let blinding_key = Scalar::random(&mut rng);
-    let value1 = rng.gen::<u32>() / 10;
+    let balance1 = rng.gen::<u32>() / 10;
     let proof1 = RangeProof::new(
         &mut rng,
-        value1,
+        balance1,
         blinding_key,
         &blinding_base,
         &key_image_base,
     );
-    let commitment1 = &Scalar::from(u64::from(value1)) * &RISTRETTO_BASEPOINT_TABLE
+    let commitment1 = &Scalar::from(u64::from(balance1)) * &RISTRETTO_BASEPOINT_TABLE
         + blinding_key * blinding_base;
     assert!(proof1
         .validate(&commitment1, &blinding_base, &key_image_base)
         .is_ok());
-    let value2 = rng.gen::<u32>() / 20;
+    let balance2 = rng.gen::<u32>() / 20;
     let proof2 = RangeProof::new(
         &mut rng,
-        value2,
+        balance2,
         blinding_key,
         &blinding_base,
         &key_image_base,
     );
-    let commitment2 = &Scalar::from(u64::from(value2)) * &RISTRETTO_BASEPOINT_TABLE
+    let commitment2 = &Scalar::from(u64::from(balance2)) * &RISTRETTO_BASEPOINT_TABLE
         + blinding_key * blinding_base;
     assert!(proof2
         .validate(&commitment2, &blinding_base, &key_image_base)
         .is_ok());
 
-    let total_value = value1 + value2;
+    let total_weight = balance1 + balance2;
     let total_commitment = commitment1 + commitment2;
     let total_key_images = proof1.get_key_image() + proof2.get_key_image();
     let mut shared_key = RistrettoPoint::default();
@@ -128,6 +128,6 @@ fn main() {
     let commitment_value = total_commitment - shared_key;
     assert_eq!(
         commitment_value,
-        &Scalar::from(u64::from(total_value)) * &RISTRETTO_BASEPOINT_TABLE,
+        &Scalar::from(u64::from(total_weight)) * &RISTRETTO_BASEPOINT_TABLE,
     );
 }
