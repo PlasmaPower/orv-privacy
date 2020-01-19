@@ -5,6 +5,10 @@ use sha2::{Digest, Sha512};
 
 const CROSS_BASE_PROOF_MESSAGE: &[u8] = b"cross base proof signature\0";
 
+/// Allows one to verify that for points `G`, `H`, `A`, and `B`,
+/// the prover knows some `s` for which `A = s*G` and `B = s*H`.
+/// I.e. `A` and `B` are the public keys for the same secret key
+/// in the basepoints `G` and `H`.
 pub struct CrossBaseProof {
     c_val: Scalar,
     s_val: Scalar,
