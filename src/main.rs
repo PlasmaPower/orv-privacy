@@ -34,6 +34,8 @@ fn main() {
             NUM_REP_SHARES,
         );
         // other reps can verify their shares
+        // they also need to sign messages saying they've seen this verification
+        // otherwise, a malicious dealer could give each a share to a different polynomial
         assert_eq!(verification.get_needed(), NUM_REP_SHARES_NEEDED);
         for (i, &share) in shares.iter().enumerate() {
             assert!(verification
