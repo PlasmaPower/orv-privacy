@@ -1,26 +1,32 @@
 mod cross_base_proof;
-mod range_proof;
+mod elgamal_proof;
 mod secret_sharing;
 
+use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
 use cross_base_proof::CrossBaseProof;
-use curve25519_dalek::constants::{RISTRETTO_BASEPOINT_COMPRESSED, RISTRETTO_BASEPOINT_TABLE};
+use curve25519_dalek::constants::{
+    RISTRETTO_BASEPOINT_COMPRESSED, RISTRETTO_BASEPOINT_POINT, RISTRETTO_BASEPOINT_TABLE,
+};
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
+use elgamal_proof::ElgamalProof;
+use merlin::Transcript;
 use rand::rngs::OsRng;
 use rand::Rng;
-use range_proof::RangeProof;
 use sha2::{Digest, Sha512};
 use std::convert::TryInto;
 
 const NUM_REP_SHARES: u16 = 10;
 const NUM_REP_SHARES_NEEDED: u16 = NUM_REP_SHARES * 2 / 3;
+const DOMAIN_NAME: &[u8] = b"PlasmaPower/orv-privacy";
 
 fn main() {
+    println!("Generating shared rep key and secret sharing..");
     let mut rng = OsRng;
-    let key_image_base = Sha512::new()
-        .chain("commitment key image basepoint\0")
+    let decryption_key_base = Sha512::new()
+        .chain("commitment decryption key basepoint\0")
         .chain(RISTRETTO_BASEPOINT_COMPRESSED.as_bytes());
-    let key_image_base = RistrettoPoint::from_hash(key_image_base);
+    let decryption_key_base = RistrettoPoint::from_hash(decryption_key_base);
     let mut rep_keys = Vec::new();
     let mut rep_pubkeys = Vec::new();
     // this could be parallelized, and only needs to run e.g. daily
@@ -28,7 +34,7 @@ fn main() {
         let secret = Scalar::random(&mut rng);
         let (verification, shares) = secret_sharing::generate(
             &mut rng,
-            &key_image_base,
+            &decryption_key_base,
             secret,
             NUM_REP_SHARES_NEEDED,
             NUM_REP_SHARES,
@@ -39,7 +45,7 @@ fn main() {
         assert_eq!(verification.get_needed(), NUM_REP_SHARES_NEEDED);
         for (i, &share) in shares.iter().enumerate() {
             assert!(verification
-                .validate(&key_image_base, (i + 1).try_into().unwrap(), share)
+                .validate(&decryption_key_base, (i + 1).try_into().unwrap(), share)
                 .is_ok());
         }
         // and if the rep goes offline, recombine their shares
@@ -69,49 +75,118 @@ fn main() {
         );
         blinding_base += pubkey * multiplier;
     }
-    let blinding_key = Scalar::random(&mut rng);
-    let balance1 = rng.gen::<u32>() / 10;
-    let proof1 = RangeProof::new(
-        &mut rng,
+
+    println!("Done secret sharing, initializing bulletproofs..");
+    let bulletproof_gens = BulletproofGens::new(32, 1);
+    let pedersen_gens = PedersenGens {
+        B: RISTRETTO_BASEPOINT_POINT,
+        B_blinding: blinding_base,
+    };
+    println!("Done initializing bulletproofs, generating 2 commitments and proofs..");
+    let blinding_key1 = Scalar::random(&mut rng);
+    let decryption_key1 = blinding_key1 * decryption_key_base;
+    let balance1 = u64::from(rng.gen::<u32>() / 10);
+    let (range_proof1, commitment1) = RangeProof::prove_single(
+        &bulletproof_gens,
+        &pedersen_gens,
+        &mut Transcript::new(DOMAIN_NAME),
         balance1,
-        blinding_key,
-        &blinding_base,
-        &key_image_base,
-    );
-    let commitment1 = &Scalar::from(u64::from(balance1)) * &RISTRETTO_BASEPOINT_TABLE
-        + blinding_key * blinding_base;
-    assert!(proof1
-        .validate(&commitment1, &blinding_base, &key_image_base)
-        .is_ok());
-    let balance2 = rng.gen::<u32>() / 20;
-    let proof2 = RangeProof::new(
+        &blinding_key1,
+        32,
+    )
+    .expect("Failed to prove range with bulletpoof");
+    let elgamal_proof1 = ElgamalProof::new(
         &mut rng,
-        balance2,
-        blinding_key,
+        blinding_key1,
         &blinding_base,
-        &key_image_base,
+        balance1,
+        &decryption_key_base,
     );
-    let commitment2 = &Scalar::from(u64::from(balance2)) * &RISTRETTO_BASEPOINT_TABLE
-        + blinding_key * blinding_base;
-    assert!(proof2
-        .validate(&commitment2, &blinding_base, &key_image_base)
+
+    let blinding_key2 = Scalar::random(&mut rng);
+    let decryption_key2 = blinding_key2 * decryption_key_base;
+    let balance2 = u64::from(rng.gen::<u32>() / 10);
+    let (range_proof2, commitment2) = RangeProof::prove_single(
+        &bulletproof_gens,
+        &pedersen_gens,
+        &mut Transcript::new(DOMAIN_NAME),
+        balance2,
+        &blinding_key2,
+        32,
+    )
+    .expect("Failed to prove range with bulletpoof");
+    let elgamal_proof2 = ElgamalProof::new(
+        &mut rng,
+        blinding_key2,
+        &blinding_base,
+        balance2,
+        &decryption_key_base,
+    );
+
+    println!("Done generating commitments and proofs, verifying them..");
+    assert_eq!(
+        range_proof1.verify_single(
+            &bulletproof_gens,
+            &pedersen_gens,
+            &mut Transcript::new(DOMAIN_NAME),
+            &commitment1,
+            32,
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        range_proof2.verify_single(
+            &bulletproof_gens,
+            &pedersen_gens,
+            &mut Transcript::new(DOMAIN_NAME),
+            &commitment2,
+            32,
+        ),
+        Ok(())
+    );
+    let commitment1 = commitment1
+        .decompress()
+        .expect("Failed to decompress commitment");
+    let commitment2 = commitment2
+        .decompress()
+        .expect("Failed to decompress commitment");
+    assert!(elgamal_proof1
+        .verify(
+            &commitment1,
+            &decryption_key1,
+            &blinding_base,
+            &decryption_key_base
+        )
+        .is_ok());
+    assert!(elgamal_proof2
+        .verify(
+            &commitment2,
+            &decryption_key2,
+            &blinding_base,
+            &decryption_key_base
+        )
         .is_ok());
 
+    println!("Done verifying proofs, decrypting total balance..");
     let total_weight = balance1 + balance2;
     let total_commitment = commitment1 + commitment2;
-    let total_key_images = proof1.get_key_image() + proof2.get_key_image();
+    let total_decryption_keys = decryption_key1 + decryption_key2;
     let mut shared_key = RistrettoPoint::default();
     for (rep_key, rep_pubkey) in rep_keys.into_iter().zip(rep_pubkeys.into_iter()) {
         // if they are offline, this could be recovered via secert sharing as shown above
-        let shared_key_part = rep_key * total_key_images;
-        let equality_sig =
-            CrossBaseProof::new(&mut rng, &key_image_base, &total_key_images, rep_key);
+        let shared_key_part = rep_key * total_decryption_keys;
+        let equality_sig = CrossBaseProof::new(
+            &mut rng,
+            &decryption_key_base,
+            &total_decryption_keys,
+            rep_key,
+        );
         // the public can validate shared_key_part, assuring them that decryption is correct
         assert!(equality_sig
             .validate(
-                &key_image_base,
+                &decryption_key_base,
                 &rep_pubkey,
-                &total_key_images,
+                &total_decryption_keys,
                 &shared_key_part,
             )
             .is_ok());
@@ -130,6 +205,7 @@ fn main() {
     let commitment_value = total_commitment - shared_key;
     assert_eq!(
         commitment_value,
-        &Scalar::from(u64::from(total_weight)) * &RISTRETTO_BASEPOINT_TABLE,
+        &Scalar::from(total_weight) * &RISTRETTO_BASEPOINT_TABLE,
     );
+    println!("Successfully recovered total balance!");
 }

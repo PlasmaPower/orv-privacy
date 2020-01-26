@@ -34,10 +34,7 @@ impl CrossBaseProof {
                 .chain(CROSS_BASE_PROOF_MESSAGE),
         );
         let s_val = a_val + c_val * secret;
-        CrossBaseProof {
-            c_val,
-            s_val,
-        }
+        CrossBaseProof { c_val, s_val }
     }
 
     pub fn validate(
@@ -53,7 +50,7 @@ impl CrossBaseProof {
             Sha512::new()
                 .chain(r_val.compress().as_bytes())
                 .chain(l_val.compress().as_bytes())
-                .chain(CROSS_BASE_PROOF_MESSAGE)
+                .chain(CROSS_BASE_PROOF_MESSAGE),
         );
         if self.c_val == expected_c {
             Ok(())
